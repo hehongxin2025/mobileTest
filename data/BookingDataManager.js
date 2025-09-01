@@ -1,13 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { bookingService } from '../service/BookingService';
+import CacheDataHandler from '../service/CacheDataHandler';
 import { isExpired } from '../utils/timeUtils';
 
 // 数据管理器
 class BookingDataManager {
     constructor() {
-        this.CACHE_KEY = 'SHIP_BOOKING_DATA';
-        this.CACHE_EXPIRY_KEY = 'SHIP_BOOKING_DATA_EXPIRY';
-        this.CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
+        this.cacheDataHandler = new CacheDataHandler({ // 缓存处理器
+            CACHE_KEY: 'SHIP_BOOKING_DATA',
+            CACHE_EXPIRY_KEY: 'SHIP_BOOKING_DATA_EXPIRY',
+            CACHE_DURATION: 5 * 60 * 1000 // 5分钟缓存
+        });
     }
 
     // 获取数据
@@ -19,7 +21,7 @@ class BookingDataManager {
             }
 
             // 检查缓存是否有效
-            const cachedData = await this._getCachedData();
+            const cachedData = await this.cacheDataHandler.getCachedData();
 
             // 如果没有缓存数据，直接获取新数据
             if (!cachedData) {
@@ -33,7 +35,7 @@ class BookingDataManager {
             }
 
             // 数据未过期，检查缓存时间是否过期
-            const cacheExpired = await this._isCacheExpired();
+            const cacheExpired = await this.cacheDataHandler.isCacheExpired();
             if (cacheExpired) {
                 // 缓存过期但数据未过期，后台静默更新数据
                 console.log('Cache expired but data still valid, refreshing in background');
@@ -47,7 +49,7 @@ class BookingDataManager {
             console.error('Error getting ship bookings:', error);
 
             // 出错也返回过期缓存
-            const expiredData = await AsyncStorage.getItem(this.CACHE_KEY);
+            const expiredData = await this.cacheDataHandler.getCachedData();
             if (expiredData) {
                 console.log('Returning expired cache data due to error');
                 const parsedData = JSON.parse(expiredData);
@@ -60,63 +62,11 @@ class BookingDataManager {
         }
     }
 
-    // 检查缓存是否过期
-    async _isCacheExpired() {
-        try {
-            const expiryTime = await AsyncStorage.getItem(this.CACHE_EXPIRY_KEY);
-            if (!expiryTime) return true;
-
-            return isExpired(expiryTime)
-        } catch (error) {
-            console.error('Error checking cache expiry:', error);
-            return true;
-        }
-    }
-
     // 获取并缓存数据
     async _fetchAndCacheData() {
         const data = await bookingService.fetchShipBookings();
-        await this._cacheData(data);
+        await this.cacheDataHandler.cacheData(data);
         return data;
-    }
-
-    // 缓存数据
-    async _cacheData(data) {
-        try {
-            const dataString = JSON.stringify(data);
-            const expiryTime = Date.now() + this.CACHE_DURATION;
-
-            await AsyncStorage.multiSet([
-                [this.CACHE_KEY, dataString],
-                [this.CACHE_EXPIRY_KEY, expiryTime.toString()]
-            ]);
-        } catch (error) {
-            console.error('Error caching data:', error);
-            throw error;
-        }
-    }
-
-    // 获取缓存数据
-    async _getCachedData() {
-        try {
-            const data = await AsyncStorage.getItem(this.CACHE_KEY);
-            if (!data) return null;
-
-            return JSON.parse(data);
-        } catch (error) {
-            console.error('Error retrieving cached data:', error);
-            return null;
-        }
-    }
-
-    // 清除缓存
-    async clearCache() {
-        try {
-            await AsyncStorage.multiRemove([this.CACHE_KEY, this.CACHE_EXPIRY_KEY]);
-        } catch (error) {
-            console.error('Error clearing cache:', error);
-            throw error;
-        }
     }
 }
 
